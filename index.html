@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="description" content="Drop Defender — demo técnica de detección de bots de reventa en drops limitados. Por Marco Fernández.">
+<style>
+  :root { padding: env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px); }
+  html, body { margin: 0; }
+  body { font: 14px system-ui, sans-serif; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+<title>Drop Defender</title>
+<style>
+  /* Layout: a live "drop console" — streaming order feed on one side, verdict + stock meter driving the page. Red/ink brand nod, mono data face. */
+  :root {
+    --bg: #faf7f2;
+    --surface: #ffffff;
+    --surface-2: #f3eee6;
+    --ink: #17120f;
+    --muted: #6b6259;
+    --line: #e4ddd2;
+    --red: #e3201b;
+    --red-soft: #fbe3e2;
+    --green: #1f7a4d;
+    --green-soft: #ddeee3;
+    --amber: #b06a00;
+    --amber-soft: #f6e9cf;
+    --console: #141210;
+    --console-fg: #f3ede2;
+    --display: "Archivo Black", "Arial Black", system-ui, sans-serif;
+    --body: "Public Sans", system-ui, -apple-system, sans-serif;
+    --mono: "Space Mono", ui-monospace, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141210; --surface: #1e1a17; --surface-2: #262019;
+      --ink: #f3ede2; --muted: #a69c90; --line: #322c26;
+      --red: #ff5a52; --red-soft: #3a1b1a; --green: #4cc488; --green-soft: #15291f;
+      --amber: #e0a23a; --amber-soft: #352a16;
+      --console: #0c0a09; --console-fg: #f3ede2;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141210; --surface: #1e1a17; --surface-2: #262019;
+    --ink: #f3ede2; --muted: #a69c90; --line: #322c26;
+    --red: #ff5a52; --red-soft: #3a1b1a; --green: #4cc488; --green-soft: #15291f;
+    --amber: #e0a23a; --amber-soft: #352a16;
+    --console: #0c0a09; --console-fg: #f3ede2;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--body); line-height: 1.55; font-size: 16px; }
+  .wrap {
+    max-width: 920px; margin: 0 auto;
+    padding-left: max(20px, env(safe-area-inset-left, 0px));
+    padding-right: max(20px, env(safe-area-inset-right, 0px));
+    padding-block: 0;
+  }
+
+  /* hero */
+  .hero { padding-block: 44px 24px; border-bottom: 3px solid var(--ink); }
+  .tag { font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--red); margin: 0 0 16px; }
+  h1 { font-family: var(--display); font-weight: 400; font-size: clamp(2.1rem, 8vw, 3.6rem); line-height: 0.96; letter-spacing: -0.01em; text-transform: uppercase; text-wrap: balance; margin: 0 0 18px; }
+  h1 .ast { color: var(--red); }
+  .lede { font-size: clamp(1.02rem, 2.4vw, 1.2rem); max-width: 60ch; margin: 0 0 8px; }
+  .lede b { color: var(--red); }
+
+  /* console */
+  .console-card { margin-block: 28px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
+  .console-top {
+    display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: center; justify-content: space-between;
+    padding: 16px 18px; background: var(--surface-2); border-bottom: 1px solid var(--line);
+  }
+  .drop-id { font-family: var(--mono); font-size: 12px; color: var(--muted); letter-spacing: 0.04em; }
+  .drop-id b { color: var(--ink); }
+  .btn {
+    font-family: var(--mono); font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    background: var(--red); color: #fff; border: none; border-radius: 8px; padding: 11px 20px; cursor: pointer;
+  }
+  .btn:hover { filter: brightness(1.08); }
+  .btn:disabled { opacity: 0.45; cursor: default; filter: none; }
+  .btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  .btn.ghost:hover { border-color: var(--red); color: var(--red); filter: none; }
+  .btnrow { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  /* stock meter */
+  .stock { padding: 16px 18px; border-bottom: 1px solid var(--line); }
+  .stock-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .stock-head .lbl { font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  .stock-head .n { font-family: var(--display); font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+  .bar { height: 14px; border-radius: 999px; background: var(--surface-2); overflow: hidden; display: flex; }
+  .bar .real { background: var(--green); height: 100%; transition: width 0.3s ease; }
+  .bar .bot { background: var(--red); height: 100%; transition: width 0.3s ease; }
+  .bar .left { background: var(--line); height: 100%; flex: 1; }
+  .barkey { display: flex; gap: 16px; margin-top: 8px; font-family: var(--mono); font-size: 11px; color: var(--muted); flex-wrap: wrap; }
+  .barkey span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+  .barkey .k-real::before { background: var(--green); }
+  .barkey .k-bot::before { background: var(--red); }
+
+  /* feed */
+  .feed-wrap { background: var(--console); color: var(--console-fg); }
+  .feed-label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #8a8178; padding: 12px 18px 4px; }
+  .feed { list-style: none; margin: 0; padding: 4px 10px 14px; min-height: 230px; max-height: 340px; overflow-y: auto; font-family: var(--mono); font-size: 12.5px; }
+  .feed li {
+    display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: baseline;
+    padding: 7px 8px; border-radius: 6px; margin-bottom: 2px;
+    animation: pop 0.28s ease;
+  }
+  @keyframes pop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .feed li { animation: none; } .bar .real, .bar .bot { transition: none; } }
+  .feed li.real { background: rgba(76,196,136,0.08); }
+  .feed li.bot { background: rgba(255,90,82,0.1); }
+  .feed .oid { color: #8a8178; }
+  .feed .reason { color: #c7bfb4; font-size: 11.5px; min-width: 0; }
+  .feed .verdict { font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; }
+  .feed .verdict.real { color: var(--green); }
+  .feed .verdict.bot { color: var(--red); }
+  .feed .empty { color: #6b6259; padding: 24px 8px; text-align: center; grid-column: 1/-1; display: block; }
+
+  /* result banner */
+  .result { padding: 18px; border-top: 1px solid var(--line); background: var(--surface); display: none; }
+  .result.show { display: block; }
+  .result .big { font-family: var(--display); font-size: clamp(1.2rem, 4vw, 1.6rem); text-transform: uppercase; line-height: 1.05; margin: 0 0 6px; }
+  .result .big .hl { color: var(--red); }
+  .result p { margin: 0; font-size: 0.95rem; color: var(--muted); }
+
+  /* how / me sections */
+  section { padding-block: 32px; border-bottom: 1px solid var(--line); }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+  h2 { font-family: var(--display); font-weight: 400; font-size: clamp(1.35rem, 4.2vw, 1.9rem); line-height: 1.05; text-transform: uppercase; text-wrap: balance; margin: 0 0 16px; }
+  .signals { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+  .signal { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 15px 16px; }
+  .signal h3 { font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--red); margin: 0 0 6px; }
+  .signal p { margin: 0; font-size: 0.9rem; color: var(--muted); }
+  .real-note { font-size: 0.9rem; color: var(--muted); font-style: italic; border-left: 2px solid var(--line); padding-left: 14px; margin-top: 18px; }
+
+  .me p { max-width: 60ch; margin: 0 0 14px; }
+  .me p:last-of-type { margin-bottom: 0; }
+  .contact { display: flex; flex-wrap: wrap; gap: 10px 22px; margin-top: 20px; font-family: var(--mono); font-size: 0.9rem; }
+  .contact a, .contact .selectable { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--red); padding-bottom: 1px; }
+  .contact a:hover { color: var(--red); }
+  .selectable { user-select: all; }
+  .copy { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: 6px; padding: 4px 9px; cursor: pointer; margin-left: 8px; }
+  .copy:hover { border-color: var(--red); color: var(--red); }
+
+  .foot { font-family: var(--mono); font-size: 11px; color: var(--muted); padding-block: 0 40px; line-height: 1.7; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--red); outline-offset: 3px; }
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Public+Sans:wght@400;600;700&family=Space+Mono:wght@400;700&display=swap">
+
+<div class="wrap">
+
+  <header class="hero">
+    <p class="tag">Demo técnica · no oficial · 26 oct 2026</p>
+    <h1>Drop Defender<span class="ast">***</span></h1>
+    <p class="lede">Cuando lanzáis un drop limitado, los bots de reventa compran antes que vuestra comunidad y luego revenden caro. <b>No os lo cuento con un PDF. Dadle abajo y miradlo.</b></p>
+    <p class="lede">Esto es una simulación hecha en una tarde. Con vuestros datos reales de Shopify, es producto.</p>
+  </header>
+
+  <div class="console-card">
+    <div class="console-top">
+      <div class="drop-id">DROP <b>#MLFSHKS-07</b> · stock limitado: <b>40 uds</b></div>
+      <div class="btnrow">
+        <button class="btn" id="launch">▶ Lanzar drop</button>
+        <button class="btn ghost" id="reset" disabled>Reiniciar</button>
+      </div>
+    </div>
+
+    <div class="stock">
+      <div class="stock-head">
+        <span class="lbl">Reparto del stock en tiempo real</span>
+        <span class="n"><span id="sold">0</span> / 40</span>
+      </div>
+      <div class="bar" aria-hidden="true">
+        <div class="real" id="bar-real" style="width:0%"></div>
+        <div class="bot" id="bar-bot" style="width:0%"></div>
+        <div class="left"></div>
+      </div>
+      <div class="barkey">
+        <span class="k-real">A compradores reales: <b id="n-real" style="color:var(--green)">0</b></span>
+        <span class="k-bot">Bloqueado a bots: <b id="n-bot" style="color:var(--red)">0</b></span>
+      </div>
+    </div>
+
+    <div class="feed-wrap">
+      <p class="feed-label">▌ Flujo de pedidos entrantes — clasificación en vivo</p>
+      <ul class="feed" id="feed" aria-live="polite">
+        <li><span class="empty">Pulsa "Lanzar drop" para abrir la caja de pedidos.</span></li>
+      </ul>
+    </div>
+
+    <div class="result" id="result">
+      <p class="big">Drop protegido. <span class="hl"><span id="saved">0</span> unidades</span> salvadas para tu comunidad.</p>
+      <p id="result-sub"></p>
+    </div>
+  </div>
+
+  <section>
+    <p class="eyebrow">Qué mira el motor</p>
+    <h2>Cómo distingue persona de bot</h2>
+    <div class="signals">
+      <div class="signal">
+        <h3>Velocidad</h3>
+        <p>Una persona tarda segundos en añadir al carrito y pagar. Un bot lo hace en milisegundos tras abrir el stock.</p>
+      </div>
+      <div class="signal">
+        <h3>Repetición</h3>
+        <p>Mismo método de pago o misma huella de dispositivo comprando varias unidades en ráfaga: patrón de reventa.</p>
+      </div>
+      <div class="signal">
+        <h3>Huella de automatización</h3>
+        <p>Señales de navegador headless, sin interacción humana real (ni scroll, ni movimiento de ratón).</p>
+      </div>
+      <div class="signal">
+        <h3>Reputación</h3>
+        <p>Cuentas recién creadas, direcciones de envío en bloque o IPs de centros de datos en lugar de redes domésticas.</p>
+      </div>
+    </div>
+    <p class="real-note">Para la demo, estas señales están simplificadas y los pedidos son generados al azar, inventados. El sistema real se entrena con vuestros pedidos reales vía API de Shopify y mejora con cada drop. Es exactamente el tipo de modelo de clasificación que ya he construido antes.</p>
+  </section>
+
+  <section class="me">
+    <p class="eyebrow">Quién os escribe</p>
+    <h2>Marco Fernández</h2>
+    <p>Perfil técnico entre <strong>sistemas, seguridad e IA</strong>. Vengo de construir modelos de machine learning y pipelines de datos en producción, con base de pentesting (eJPT, CPTS en curso). Ciudadano de la UE, en Berna, disponible ya.</p>
+    <p>No os escribo por una vacante: no hay ninguna abierta. Os escribo porque prefiero enseñar antes que contar. Esto lo monté por curiosidad en una tarde. Imaginad lo que sale con acceso de verdad y tiempo.</p>
+    <div class="contact">
+      <span class="selectable">marco.fernandezcallejon@hotmail.com</span><button class="copy" data-copy="marco.fernandezcallejon@hotmail.com">Copiar</button>
+      <a href="https://github.com/marfern3" target="_blank" rel="noopener">github.com/marfern3</a>
+      <a href="https://linkedin.com/in/marcofer3" target="_blank" rel="noopener">linkedin.com/in/marcofer3</a>
+    </div>
+  </section>
+
+  <p class="foot">
+    Demostración técnica con datos simulados generados en el navegador. No se ha accedido, escaneado ni probado ningún sistema de Milfshakes.<br>
+    Pieza personal de Marco Fernández, sin vínculo oficial con Milfshakes. "Drop Defender" es un nombre de concepto para esta demo.
+  </p>
+
+</div>
+
+<script>
+  (function () {
+    var STOCK = 40;
+    var feedEl = document.getElementById('feed');
+    var launchBtn = document.getElementById('launch');
+    var resetBtn = document.getElementById('reset');
+    var soldEl = document.getElementById('sold');
+    var nRealEl = document.getElementById('n-real');
+    var nBotEl = document.getElementById('n-bot');
+    var barReal = document.getElementById('bar-real');
+    var barBot = document.getElementById('bar-bot');
+    var resultEl = document.getElementById('result');
+    var savedEl = document.getElementById('saved');
+    var resultSub = document.getElementById('result-sub');
+    var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    var botReasons = [
+      'compra en 40 ms tras abrir stock',
+      'navegador headless detectado',
+      '5ª unidad con misma tarjeta',
+      'IP de centro de datos',
+      'cuenta creada hace 20 s',
+      'sin interacción humana (0 scroll)',
+      'ráfaga de 3 pedidos en 1 s'
+    ];
+    var realReasons = [
+      'ritmo humano, scroll previo',
+      'cuenta con historial de compra',
+      'IP residencial, 1 unidad',
+      'tiempo en carrito: 12 s',
+      'dispositivo conocido',
+      'pago verificado, sin ráfaga'
+    ];
+
+    var timer = null, i = 0, real = 0, bot = 0;
+    var TOTAL = 64; // more orders than stock, like a real hyped drop
+
+    function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+    function pad(n) { return (n < 10 ? '000' : n < 100 ? '00' : '0') + n; }
+
+    function reset() {
+      if (timer) { clearInterval(timer); timer = null; }
+      i = 0; real = 0; bot = 0;
+      feedEl.innerHTML = '<li><span class="empty">Pulsa "Lanzar drop" para abrir la caja de pedidos.</span></li>';
+      soldEl.textContent = '0'; nRealEl.textContent = '0'; nBotEl.textContent = '0';
+      barReal.style.width = '0%'; barBot.style.width = '0%';
+      resultEl.classList.remove('show');
+      launchBtn.disabled = false; launchBtn.textContent = '▶ Lanzar drop';
+      resetBtn.disabled = true;
+    }
+
+    function finish() {
+      clearInterval(timer); timer = null;
+      launchBtn.textContent = 'Drop cerrado';
+      resetBtn.disabled = false;
+      savedEl.textContent = real;
+      var pct = Math.round((bot / (real + bot)) * 100);
+      resultSub.textContent = 'Se bloquearon ' + bot + ' intentos de bots/reventa (' + pct + '% del tráfico del drop). Sin este filtro, ese stock se habría ido a reventa.';
+      resultEl.classList.add('show');
+    }
+
+    function step() {
+      if (i >= TOTAL || (real + bot) >= STOCK) { finish(); return; }
+      i++;
+      // ~45% of order attempts are bots in a hyped limited drop
+      var isBot = Math.random() < 0.45;
+      var li = document.createElement('li');
+      li.className = isBot ? 'bot' : 'real';
+      var verdict = isBot ? 'BOT ✕' : 'REAL ✓';
+      var reason = isBot ? pick(botReasons) : pick(realReasons);
+      li.innerHTML = '<span class="oid">#' + pad(i) + '</span>' +
+                     '<span class="reason">' + reason + '</span>' +
+                     '<span class="verdict ' + (isBot ? 'bot' : 'real') + '">' + verdict + '</span>';
+      // only real buyers consume stock; bots are blocked
+      if (isBot) { bot++; }
+      else { real++; }
+      // clear placeholder on first order
+      if (i === 1) feedEl.innerHTML = '';
+      feedEl.insertBefore(li, feedEl.firstChild);
+      // trim feed
+      while (feedEl.children.length > 40) feedEl.removeChild(feedEl.lastChild);
+
+      soldEl.textContent = real;
+      nRealEl.textContent = real;
+      nBotEl.textContent = bot;
+      barReal.style.width = (real / STOCK * 100) + '%';
+      // bot bar is illustrative: show blocked pressure capped
+      barBot.style.width = Math.min(bot, STOCK) / STOCK * 20 + '%';
+    }
+
+    launchBtn.addEventListener('click', function () {
+      if (timer) return;
+      launchBtn.disabled = true; launchBtn.textContent = 'Drop en curso…';
+      resetBtn.disabled = false;
+      resultEl.classList.remove('show');
+      feedEl.innerHTML = '';
+      timer = setInterval(step, reduce ? 90 : 170);
+    });
+    resetBtn.addEventListener('click', reset);
+
+    // copy buttons
+    document.querySelectorAll('.copy').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var text = btn.getAttribute('data-copy');
+        var done = function () { var o = btn.textContent; btn.textContent = 'Copiado'; setTimeout(function () { btn.textContent = o; }, 1500); };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done).catch(fb);
+        } else { fb(); }
+        function fb () { var r = document.createRange(); r.selectNodeContents(btn.previousElementSibling); var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); done(); }
+      });
+    });
+  })();
+</script>
+
+</body>
+</html>
